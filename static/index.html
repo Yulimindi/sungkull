@@ -126,6 +126,19 @@ header .spacer { flex: 1; }
 .pitem button { padding: 4px 10px; font-size: 13px; }
 .pitem .av { transform: scale(.7); margin: -6px -4px; }
 .lobby .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.decks { margin: 0 0 16px; }
+.decks .label { font: 17px var(--display); color: var(--accent); margin-bottom: 8px; }
+.decks .tag { font: 12px "Pretendard", "Malgun Gothic", sans-serif; color: var(--muted); }
+.deck-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.deck-opt { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: #0d0a07aa; border: 2px solid var(--line); box-shadow: none; }
+.deck-opt.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 0 20px #ffc83d55; }
+.deck-opt:disabled { cursor: default; opacity: 1; }
+.deck-opt:disabled:not(.on) { opacity: .5; }
+.deck-imgs { display: flex; gap: 6px; align-items: center; }
+.deck-imgs .cimg { width: 56px; height: 56px; box-shadow: 0 3px 8px #000a; }
+.deck-imgs .cimg.sq { border-radius: 8px; }
+.deck-nm { font: 17px var(--display); color: var(--text); }
+.deck-opt.on .deck-nm { color: var(--accent); }
 .invite { display: flex; gap: 8px; align-items: center; background: #0d0a07aa; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--muted); word-break: break-all; }
 .invite code { color: var(--text); flex: 1; }
 
@@ -377,6 +390,11 @@ button.card.drop-before { box-shadow: -6px 0 0 var(--accent), 0 4px 0 #0008; }
   .bigbtn { font-size: 18px; padding: 12px 18px; }
   .bigflip { width: 120px; height: 120px; }
 }
+/* 7~8명이면 자리가 겹치지 않게 조금 작게 */
+.table-wrap.many .unit { --ms: 96px; --cs: 76px; gap: 6px; }
+.table-wrap.many .plate { font-size: 15px; max-width: 140px; }
+@media (max-width: 760px) { .table-wrap.many .unit { --ms: 70px; --cs: 56px; } .table-wrap.many .plate { font-size: 13px; max-width: 104px; } }
+@media (max-width: 620px) { .table-wrap.many { min-height: 760px; } .table-wrap.many .unit { --ms: 54px; --cs: 44px; } }
 </style>
 </head>
 <body>
@@ -497,16 +515,24 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
-// 플레이어 색 번호마다 카드 테마가 정해진다 (static/cards/<테마>-banana|monkey|back.webp)
-const THEMES = ["green", "yellow", "red", "purple", "blue", "orange"];
-const COLORS = ["#5fd068", "#ffc93c", "#ff5a4f", "#c27cff", "#3fb6ff", "#ff9233"];
+// 플레이어 색 번호마다 카드 색이 정해지고, 그림체는 방장이 고른 카드 테마(deck)를 따른다.
+// static/cards/<색>-back.webp (공용 뒷면), static/cards/<테마>-<색>-banana|monkey|tile.webp
+const THEMES = ["green", "yellow", "red", "purple", "blue", "orange", "brown", "navy"];
+const COLORS = ["#5fd068", "#ffc93c", "#ff5a4f", "#c27cff", "#3fb6ff", "#ff9233", "#c08a5a", "#7b8cff"];
 const colorOf = (p) => COLORS[p.color % COLORS.length];
 const themeOf = (p) => THEMES[p.color % THEMES.length];
-const KIND = { B: "banana", M: "monkey" };
-// 카드 그림 배경 스타일. kind는 "B" | "M" | "back"
-const art = (theme, kind) => `background-image:url(/cards/${theme}-${KIND[kind] || "back"}.webp)`;
+const KIND = { B: "banana", M: "monkey", tile: "tile" };
+const deckOf = () => (S.st && S.st.deck) || "wild";
+// kind는 "B" | "M" | "tile" | "back"
+const cardUrl = (theme, kind, deck = deckOf()) => KIND[kind] ? `/cards/${deck}-${theme}-${KIND[kind]}.webp` : `/cards/${theme}-back.webp`;
+const art = (theme, kind) => `background-image:url(${cardUrl(theme, kind)})`;
 // 처음 뒤집을 때 깜빡이지 않도록 카드 그림을 미리 받아 둔다
-THEMES.forEach((t) => ["banana", "monkey", "back"].forEach((k) => { new Image().src = `/cards/${t}-${k}.webp`; }));
+const preloaded = new Set();
+function preloadDeck(deck) {
+  if (preloaded.has(deck)) return;
+  preloaded.add(deck);
+  THEMES.forEach((t) => ["B", "M", "tile", "back"].forEach((k) => { new Image().src = cardUrl(t, k, deck); }));
+}
 
 const S = {
   prevMat: {},
@@ -723,6 +749,7 @@ function render() {
     if (!S.firstState) toast("🤫 " + st.note.text, "secret");
     S.noteSeen = st.note.id;
   }
+  preloadDeck(st.deck);
   const inLobby = st.phase === "lobby";
   $("lobbyView").classList.toggle("hidden", !inLobby);
   $("gameView").classList.toggle("hidden", inLobby);
@@ -751,16 +778,27 @@ function renderLobby(st) {
       ${p.bot ? '<span class="tag">봇</span>' : p.online ? "" : '<span class="tag" style="color:var(--danger)">오프라인</span>'}
       ${host && i !== st.me ? `<button class="ghost" data-kick="${p.id}">내보내기</button>` : ""}
     </div>`).join("");
-  const empty = Array.from({ length: 6 - st.players.length }, () => `<div class="pitem" style="opacity:.35"><span class="av">🌿</span><span class="nm">빈 자리</span></div>`).join("");
+  const empty = Array.from({ length: st.maxPlayers - st.players.length }, () => `<div class="pitem" style="opacity:.35"><span class="av">🌿</span><span class="nm">빈 자리</span></div>`).join("");
+  // 카드 테마 미리보기: 원숭이·바나나·매트 (내 색으로)
+  const mine = themeOf(st.players[st.me ?? 0]);
+  const decks = st.decks.map((d) => `
+    <button class="deck-opt${d.id === st.deck ? " on" : ""}" data-deck="${d.id}" ${host ? "" : "disabled"} aria-pressed="${d.id === st.deck}">
+      <span class="deck-imgs">${["M", "B", "tile"].map((k) => `<span class="cimg${k === "tile" ? " sq" : ""}" style="background-image:url(${cardUrl(mine, k, d.id)})"></span>`).join("")}</span>
+      <span class="deck-nm">${d.id === st.deck ? "✔ " : ""}${esc(d.name)}</span>
+    </button>`).join("");
   $("lobbyView").innerHTML = `
     <div class="card-panel panel">
-      <h2>🌴 대기실 (${st.players.length}/6)</h2>
+      <h2>🌴 대기실 (${st.players.length}/${st.maxPlayers})</h2>
       <div class="hint">친구에게 방 코드 <b style="color:var(--accent)">${st.code}</b> 또는 아래 주소를 보내세요. 인원이 부족하면 봇을 넣을 수 있어요.</div>
       <div class="invite"><code>${esc(url)}</code><button class="ghost" id="copyBtn">복사</button></div>
       <div class="plist">${items}${empty}</div>
+      <div class="decks">
+        <div class="label">카드 테마 ${host ? "" : '<span class="tag">· 방장이 고를 수 있어요</span>'}</div>
+        <div class="deck-opts">${decks}</div>
+      </div>
       <div class="actions">
         ${host ? `
-          <button id="addBotBtn" ${st.players.length >= 6 ? "disabled" : ""}>🤖 봇 추가</button>
+          <button id="addBotBtn" ${st.players.length >= st.maxPlayers ? "disabled" : ""}>🤖 봇 추가</button>
           <span style="flex:1"></span>
           <button class="primary" id="startBtn" ${st.players.length < 2 ? "disabled" : ""}>게임 시작 ▶</button>`
         : `<span class="hint" style="margin:0">방장이 게임을 시작할 때까지 기다려 주세요...</span>`}
@@ -772,6 +810,7 @@ function renderLobby(st) {
     $("addBotBtn").onclick = () => act("addBot");
     $("startBtn").onclick = () => act("start");
     $("lobbyView").querySelectorAll("[data-kick]").forEach((b) => (b.onclick = () => act("kick", { pid: b.dataset.kick })));
+    $("lobbyView").querySelectorAll("[data-deck]").forEach((b) => (b.onclick = () => { if (b.dataset.deck !== st.deck) act("deck", { deck: b.dataset.deck }); }));
   }
 }
 
@@ -806,6 +845,7 @@ const tilt = (k) => ((k * 37) % 13) - 6;
 
 function renderGame(st) {
   const n = st.players.length;
+  $("tableWrap").classList.toggle("many", n > 6);
   const me = st.me ?? 0;
   const container = $("seats");
   const ids = new Set(st.players.map((p) => p.id));
@@ -859,7 +899,7 @@ function renderGame(st) {
       <div class="cnt" title="손에 든 카드 ${p.hand}장 · 가진 카드 ${p.cards}장"><span class="handfan">${fan}</span>${p.hand}장${p.cards < 4 ? `<small>/${p.cards}</small>` : ""}</div>`;
     el.querySelector(".mcol").innerHTML = `
       <div class="plate"><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span><span class="sc" title="바나나 점수 ${p.score}/${st.winScore}">${score}</span>${p.online ? "" : '<span class="off">오프라인</span>'}</div>
-      <div class="mat" style="background-image:url(/cards/${theme}-tile.webp)">
+      <div class="mat" style="${art(theme, "tile")}">
         <div class="pstack">${backs}${hidden > 1 ? `<span class="pcount">${hidden}</span>` : ""}</div>
         ${badge}
         ${dropOk ? '<span class="plabel">⬇ 여기에 놓기</span>' : ""}
@@ -925,7 +965,7 @@ function flyCard({ pid, mine, theme }) {
     { duration: 650, easing: "cubic-bezier(.3,.7,.3,1)" },
   );
   // 반쯤 날아가면 뒷면으로 엎어진다
-  if (face) setTimeout(() => { card.style.backgroundImage = `url(/cards/${theme}-back.webp)`; }, 320);
+  if (face) setTimeout(() => { card.style.backgroundImage = `url(${cardUrl(theme, "back")})`; }, 320);
   target.style.visibility = "hidden";
   // 탭이 백그라운드면 애니메이션이 멈출 수 있으므로 시간이 지나면 강제로 정리한다
   const fallback = setTimeout(() => anim.finish(), 900);

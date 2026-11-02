@@ -21,7 +21,9 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 WIN_SCORE = 2
 MIN_PLAYERS = 2
-MAX_PLAYERS = 6
+MAX_PLAYERS = 8
+DECKS = ("wild", "cute")  # 카드 테마: static/cards/<테마>-<색>-banana|monkey|tile.webp
+DECK_NAMES = {"wild": "장난꾸러기", "cute": "귀요미"}
 OFFLINE_AUTOPLAY_SEC = 20  # 접속이 끊긴 사람의 차례는 이 시간 뒤 자동 진행
 RESULT_SEC = 6  # 결과 표시 후 다음 라운드까지
 ROOM_IDLE_SEC = 30 * 60
@@ -63,6 +65,7 @@ class Room:
         self.players = []
         self.host = None
         self.phase = "lobby"  # lobby | placing | bidding | revealing | discard | result | gameOver
+        self.deck = DECKS[0]
         self.turn = 0
         self.start_seat = 0
         self.bid = 0
@@ -167,7 +170,7 @@ class Room:
     # ---------- 로비 ----------
     def add_player(self, name, bot=False):
         if len(self.players) >= MAX_PLAYERS:
-            raise GameError("방이 가득 찼습니다 (최대 6명).")
+            raise GameError(f"방이 가득 찼습니다 (최대 {MAX_PLAYERS}명).")
         if self.phase != "lobby":
             raise GameError("이미 게임이 진행 중입니다.")
         base = name
@@ -192,6 +195,14 @@ class Room:
         used = {p.name for p in self.players}
         name = next((n for n in BOT_NAMES if n not in used), "봇")
         self.add_player(name, bot=True)
+
+    def set_deck(self, deck):
+        if deck not in DECKS:
+            raise GameError("없는 카드 테마입니다.")
+        if deck != self.deck:
+            self.deck = deck
+            self.say(f"🎨 카드 테마를 '{DECK_NAMES[deck]}'(으)로 바꿨습니다.")
+            self.bump()
 
     def set_cursor(self, pid, pos):
         if pos is None:
@@ -582,6 +593,8 @@ class Room:
             "passed": sorted(self.passed), "total": self.total_mat(), "opening": self.opening(),
             "reveal": None, "result": self.result, "winner": self.winner,
             "round": self.round_no, "nextAt": self.next_at, "winScore": WIN_SCORE,
+            "deck": self.deck, "decks": [{"id": d, "name": DECK_NAMES[d]} for d in DECKS],
+            "maxPlayers": MAX_PLAYERS,
             "chat": self.chat[-100:], "emotes": self.emotes[-20:], "emojis": EMOJIS,
             "now": time.time(),
         }
@@ -633,6 +646,10 @@ def handle_action(token, data):
         if not is_host or room.phase != "lobby":
             raise GameError("방장만 대기실에서 봇을 추가할 수 있습니다.")
         room.add_bot()
+    elif t == "deck":
+        if not is_host or room.phase != "lobby":
+            raise GameError("방장만 대기실에서 카드 테마를 바꿀 수 있습니다.")
+        room.set_deck(data.get("deck"))
     elif t == "kick":
         target = room.seat_of(data.get("pid"))
         if not is_host or room.phase != "lobby" or target is None or target == seat:

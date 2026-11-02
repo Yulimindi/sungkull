@@ -1,6 +1,6 @@
 # 🐒 원숭이 나무에 올라가
 
-2~6인 온라인 블러핑 카드 게임. Python 표준 라이브러리만 사용하므로 설치할 것이 없습니다.
+2~8인 온라인 블러핑 카드 게임. Python 표준 라이브러리만 사용하므로 설치할 것이 없습니다.
 
 ## 실행
 
@@ -32,7 +32,8 @@ Blueprint 대신 **New → Web Service**로 만들 때는 Runtime `Python 3`, Bu
 
 - `server.py` — 방/게임 규칙/봇/채팅을 처리하는 서버 (SSE로 실시간 상태 전송)
 - `static/index.html` — 게임 화면 (입장 → 대기실 → 게임 테이블, 채팅·감정표현)
-- `static/cards/<테마>-banana|monkey|back.webp` — 카드 그림. 테마(green·yellow·red·purple·blue·orange)는 플레이어 색 순서대로 배정
+- `static/cards/<테마>-<색>-banana|monkey|tile.webp` — 카드 앞면·매트 그림. 테마는 `wild`(장난꾸러기)·`cute`(귀요미) 두 가지로, 방장이 대기실에서 고름
+- `static/cards/<색>-back.webp` — 두 테마가 같이 쓰는 카드 뒷면. 색(green·yellow·red·purple·blue·orange·brown·navy)은 플레이어 입장 순서대로 배정
 
 ## 규칙 해석 메모
 
