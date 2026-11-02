@@ -703,6 +703,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_file(os.path.join(STATIC_DIR, "cards", name), "image/webp", cache=True)
             else:
                 self.send_error(404)
+        elif url.path == "/healthz":
+            self.send_json({"ok": True})
         elif url.path == "/api/events":
             self.events(parse_qs(url.query).get("token", [""])[0])
         elif url.path == "/api/session":
@@ -774,6 +776,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")  # 프록시(Render 등)가 SSE를 버퍼링하지 않도록
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True

@@ -12,6 +12,22 @@ python server.py
 - 같은 와이파이/네트워크의 친구: 서버 실행 시 출력되는 `http://<내 IP>:8000` 주소로 접속
 - 포트 변경: `PORT=9000 python server.py` (PowerShell: `$env:PORT=9000; python server.py`)
 
+## Render 배포 (onrender.com)
+
+저장소에 `render.yaml`(Blueprint)이 들어 있습니다.
+
+1. 이 저장소를 GitHub/GitLab에 push
+2. Render 대시보드 → **New → Blueprint** → 저장소 선택 → **Apply**
+3. 배포가 끝나면 `https://monkey-tree.onrender.com` 같은 주소로 접속 (이름이 겹치면 뒤에 접미사가 붙음)
+
+Blueprint 대신 **New → Web Service**로 만들 때는 Runtime `Python 3`, Build Command `pip install -r requirements.txt`, Start Command `python server.py`, Health Check Path `/healthz`로 설정하면 됩니다. `PORT`는 Render가 자동으로 넣어 줍니다.
+
+주의할 점:
+
+- 방·게임 상태는 서버 메모리에만 있으므로 **인스턴스는 1개**로 유지해야 합니다 (스케일 아웃하면 방이 갈라짐).
+- 재배포·재시작하면 진행 중인 방이 모두 사라집니다.
+- Free 플랜은 15분간 요청이 없으면 잠들고, 다음 접속 때 깨어나는 데 30초~1분 정도 걸립니다. 잠들 때 방도 사라집니다.
+
 ## 구성
 
 - `server.py` — 방/게임 규칙/봇/채팅을 처리하는 서버 (SSE로 실시간 상태 전송)
