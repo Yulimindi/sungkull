@@ -82,8 +82,8 @@ class Room:
         self.step_time = time.time()
         self.epoch = 0
         self.tasks = []
-        self.ai_key = None
-        self.ai_due = None
+        self.ai_due = {}   # seat -> (key, 봇이 행동할 시각)
+        self.round_time = time.time()
         self.last_active = time.time()
         self.cursors = {}  # player_id -> [x, y] (테이블 기준 좌표) 또는 {"h": 손패 번호}
         self.cursor_version = 0
@@ -158,7 +158,7 @@ class Room:
         return seat
 
     def opening(self):
-        """라운드 첫 바퀴: 아직 카드를 1장도 안 낸 사람이 있으면 도전할 수 없다."""
+        """라운드 첫 바퀴: 모두가 동시에 1장씩 낸다. 다 낼 때까지는 차례도 도전도 없다."""
         return self.phase == "placing" and any(not p.mat for p in self.players if not p.eliminated)
 
     def total_mat(self):
@@ -287,7 +287,8 @@ class Room:
         if self.players[self.start_seat].eliminated:
             self.start_seat = self.next_seat(self.start_seat)
         self.turn = self.start_seat
-        self.say(f"🌴 {self.round_no}라운드 시작! {self.name(self.turn)}님부터 시작합니다.")
+        self.round_time = time.time()
+        self.say(f"🌴 {self.round_no}라운드 시작! 모두 카드를 1장씩 동시에 내려놓으세요.")
         self.advance()
 
     def require_turn(self, seat, *phases):
@@ -297,14 +298,22 @@ class Room:
             raise GameError("내 차례가 아닙니다.")
 
     def do_place(self, seat, card):
-        self.require_turn(seat, "placing")
         p = self.players[seat]
+        opening = self.opening()
+        if opening:
+            if p.eliminated or p.mat:
+                raise GameError("다른 사람들이 첫 카드를 낼 때까지 기다리세요.")
+        else:
+            self.require_turn(seat, "placing")
         if card not in p.hand:
             raise GameError("손에 그 카드가 없습니다.")
         p.hand.remove(card)
         p.mat.append(card)
         self.say(f"🃏 {p.name}님이 카드를 1장 내려놓았습니다.")
-        self.turn = self.next_seat(seat)
+        if not opening:
+            self.turn = self.next_seat(seat)
+        elif not self.opening():
+            self.say(f"✅ 모두 첫 카드를 냈습니다. {self.name(self.turn)}님부터 차례대로 진행합니다.")
         self.advance()
 
     def do_bid(self, seat, n):
@@ -480,14 +489,16 @@ class Room:
         self.advance()
 
     # ---------- 봇 / 자동 진행 ----------
-    def actor(self):
+    def actors(self):
+        if self.opening():
+            return [s for s, p in enumerate(self.players) if not p.eliminated and not p.mat]
         if self.phase in ("placing", "bidding"):
-            return self.turn
+            return [self.turn]
         if self.phase == "revealing" and not self.reveal["auto"]:
-            return self.reveal["ch"]
+            return [self.reveal["ch"]]
         if self.phase == "discard":
-            return self.result["ch"]
-        return None
+            return [self.result["ch"]]
+        return []
 
     def tick(self, now):
         due = [t for t in self.tasks if t[0] <= now]
@@ -496,22 +507,24 @@ class Room:
             for _, epoch, fn in sorted(due, key=lambda t: t[0]):
                 if epoch == self.epoch:
                     fn()
-        seat = self.actor()
-        if seat is None:
-            return
-        p = self.players[seat]
-        if p.bot:
-            key = (self.step, seat)
-            if self.ai_key != key:
-                self.ai_key = key
-                self.ai_due = now + random.uniform(1.0, 2.2)
-            due_at = self.ai_due
-        elif p.conns == 0:
-            due_at = max(self.step_time, p.offline_since) + OFFLINE_AUTOPLAY_SEC
-        else:
-            return
-        if now >= due_at:
-            self.ai_move(seat)
+        opening = self.opening()
+        for seat in self.actors():
+            if seat not in self.actors():
+                continue  # 앞의 봇이 행동해서 상황이 바뀜
+            p = self.players[seat]
+            if p.bot:
+                # 첫 바퀴는 동시에 내므로 다른 사람이 낼 때마다 대기 시간을 다시 뽑지 않는다
+                key = ("open", self.round_no) if opening else self.step
+                if self.ai_due.get(seat, (None,))[0] != key:
+                    self.ai_due[seat] = (key, now + random.uniform(1.0, 2.2))
+                due_at = self.ai_due[seat][1]
+            elif p.conns == 0:
+                since = self.round_time if opening else self.step_time
+                due_at = max(since, p.offline_since) + OFFLINE_AUTOPLAY_SEC
+            else:
+                continue
+            if now >= due_at:
+                self.ai_move(seat)
 
     def ai_limit(self, p):
         if "M" in p.mat:

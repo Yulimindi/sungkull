@@ -733,6 +733,12 @@ function render() {
 }
 
 function isHost(st) { return st.me != null && st.players[st.me].id === st.host; }
+// 첫 바퀴에는 아직 안 낸 사람 모두가 동시에, 그 뒤로는 차례인 사람만 낸다
+function waitingFirst(st, i) { return st.opening && !st.players[i].elim && st.players[i].mat === 0; }
+function canPlace(st) {
+  if (st.phase !== "placing" || st.me == null || !st.myHand || st.myHand.B + st.myHand.M === 0) return false;
+  return st.opening ? waitingFirst(st, st.me) : st.turn === st.me;
+}
 
 function renderLobby(st) {
   const host = isHost(st);
@@ -805,7 +811,7 @@ function renderGame(st) {
   const ids = new Set(st.players.map((p) => p.id));
   for (const id of Object.keys(S.seatEls)) if (!ids.has(id)) { S.seatEls[id].remove(); delete S.seatEls[id]; delete S.pileEls[id]; }
   const myTargetTurn = st.phase === "revealing" && st.reveal && st.reveal.ch === st.me && !st.reveal.auto;
-  const myPlaceTurn = st.phase === "placing" && st.turn === st.me && st.myHand && st.myHand.B + st.myHand.M > 0;
+  const myPlaceTurn = canPlace(st);
   const showCh = st.reveal && ["revealing", "discard", "result"].includes(st.phase);
   const flights = [], flips = [];
   // 아래 패널 높이에 따라 테이블 크기가 바뀌므로 패널을 먼저 그린 뒤 자리를 잡는다
@@ -821,7 +827,7 @@ function renderGame(st) {
       S.pileEls[p.id] = el;
     }
     const canTarget = myTargetTurn && i !== st.me && p.revealed.length < p.mat;
-    const isTurn = (["placing", "bidding"].includes(st.phase) && st.turn === i) || (showCh && st.reveal.ch === i);
+    const isTurn = (st.opening ? waitingFirst(st, i) : ["placing", "bidding"].includes(st.phase) && st.turn === i) || (showCh && st.reveal.ch === i);
     const dropOk = i === st.me && myPlaceTurn;
     el.className = "unit" + (i === st.me ? " me" : "") + (isTurn ? " turn" : "") + (p.elim ? " elim" : "")
       + (st.phase === "bidding" && st.passed.includes(i) ? " dim" : "") + (canTarget ? " target" : "") + (dropOk ? " drop" : "");
@@ -1069,11 +1075,15 @@ function renderCursors() {
 function renderCenter(st) {
   const name = (i) => esc(st.players[i].name);
   let html = "";
-  if (st.phase === "placing") {
-    html = `<div class="phase">${st.round}라운드 · ${st.opening ? "첫 바퀴: 모두 1장씩" : "카드 내려놓기"}</div>
+  if (st.phase === "placing" && st.opening) {
+    const left = st.players.filter((p, i) => waitingFirst(st, i)).length;
+    html = `<div class="phase">${st.round}라운드 · 첫 카드: 모두 동시에</div>
+      <div class="bigbid">${left}명 남음</div>
+      <div class="detail">${canPlace(st) ? "카드를 1장 내려놓으세요." : "다른 사람들이 내려놓는 중..."}</div>`;
+  } else if (st.phase === "placing") {
+    html = `<div class="phase">${st.round}라운드 · 카드 내려놓기</div>
       <div class="bigbid">${name(st.turn)}</div>
-      <div class="detail">${st.opening ? (st.turn === st.me ? "내 차례! 카드를 1장 내려놓으세요." : "카드를 1장 내려놓을 차례")
-        : st.turn === st.me ? "내 차례! 카드를 내거나 바나나 먹기를 선언하세요." : "카드를 내거나 바나나 먹기를 선언할 차례"}</div>`;
+      <div class="detail">${st.turn === st.me ? "내 차례! 카드를 내거나 바나나 먹기를 선언하세요." : "카드를 내거나 바나나 먹기를 선언할 차례"}</div>`;
   } else if (st.phase === "bidding") {
     html = `<div class="phase">바나나 먹기 경매</div>
       <div class="bigbid">🍌 ${st.bid}개</div>
@@ -1174,13 +1184,16 @@ function renderDock(st) {
 
   if (me.elim) {
     hint = "☠️ 카드를 모두 잃어 탈락했습니다. 관전하면서 채팅과 감정표현은 계속할 수 있어요.";
+  } else if (st.phase === "placing" && st.opening) {
+    clickable = canPlace(st);
+    hint = clickable ? `<b>첫 카드!</b> 모두 동시에 1장씩 내려놓아요. 카드를 눌러(또는 끌어서) 내 자리에 놓으세요.`
+      : "다른 사람들이 첫 카드를 내려놓는 중...";
   } else if (st.phase === "placing") {
     if (myTurn) {
       clickable = st.myHand.B + st.myHand.M > 0;
       hint = `<b>내 차례!</b> ${clickable ? "카드를 눌러(또는 끌어서) 테이블 위 내 자리에 뒷면으로 내려놓거나, " : "손에 카드가 없으니 "}바나나 먹기를 선언하세요.`;
-      if (st.opening) hint = `<b>내 차례!</b> 라운드 첫 바퀴에는 모두 카드를 1장씩 내야 해요. 카드를 내려놓으세요.`;
       S.bidValue = Math.min(Math.max(S.bidValue, 1), Math.max(st.total, 1));
-      controls = bidControls(1, st.total, "📣 바나나 먹기 선언", st.opening || st.total < 1, false);
+      controls = bidControls(1, st.total, "📣 바나나 먹기 선언", st.total < 1, false);
     } else hint = `${name(st.turn)}님이 고민 중...`;
   } else if (st.phase === "bidding") {
     if (myTurn) {
